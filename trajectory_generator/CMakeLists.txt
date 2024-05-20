@@ -4,7 +4,7 @@ project(trajectory_generator)
 ## Compile as C++11, supported in ROS Kinetic and newer
 set(CMAKE_BUILD_TYPE Debug)
 set(CMAKE_CXX_STANDARD 11)
-add_compile_options(-Wall -O3 -march=native -g)
+add_compile_options(-Wall -O3  -g)
 
 find_package(catkin REQUIRED COMPONENTS
   roscpp
@@ -15,8 +15,9 @@ find_package(catkin REQUIRED COMPONENTS
 
 find_package(Eigen3 REQUIRED)
 set(Eigen3_INCLUDE_DIRS ${EIGEN3_INCLUDE_DIR})
-
 message(${EIGEN3_INCLUDE_DIR})
+
+find_package(OsqpEigen REQUIRED)
 
 catkin_package(
 #  INCLUDE_DIRS include
@@ -35,4 +36,5 @@ include_directories(
 add_executable(trajectory_generator_node src/trajectory_generator_node.cpp src/minimum_control.cpp)
 
 target_link_libraries(trajectory_generator_node
-                  ${catkin_LIBRARIES})
+                  ${catkin_LIBRARIES}
+                  OsqpEigen::OsqpEigen)

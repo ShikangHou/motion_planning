@@ -1,7 +1,7 @@
 /*
  * @Author: HouShikang
  * @Date: 2024-04-27 06:30:22
- * @Description: 
+ * @Description:
  */
 #ifndef __KINODYNAMIC_ASTAR_H
 #define __KINODYNAMIC_ASTAR_H
@@ -26,20 +26,19 @@ class KinoAstarPathFinder
     GridNodePtr terminal_ptr_;
     std::vector<GridNodePtr> expanded_nodes_;
     std::vector<double> cost_set_;
-    std::vector<Eigen::Matrix<double,6,1>> state_set_;
-    std::vector<Eigen::Matrix<double,6,1>> oneShot_set_;
+    std::vector<Eigen::Matrix<double, 6, 1>> state_set_;
+    std::vector<Eigen::Matrix<double, 6, 1>> oneShot_set_;
 
     int discretize_step_;
-    double time_interval_,weight_time_;
+    double time_interval_, weight_time_;
     double optimal_time_to_goal_;
     int time_step_;
     double max_acc_x_, max_acc_y_, max_acc_z_;
     double max_vel_x_, max_vel_y_, max_vel_z_;
 
-
     void expand(const GridNodePtr &node_ptr);
     bool analytical_expansion(const GridNodePtr &node_ptr);
-    double getHeuristic(GridNodePtr node1, GridNodePtr node2,double &optimal_time);
+    double getHeuristic(GridNodePtr node1, GridNodePtr goal_node, double &optimal_time);
 
   public:
     KinoAstarPathFinder()

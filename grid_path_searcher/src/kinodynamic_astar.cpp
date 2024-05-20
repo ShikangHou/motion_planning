@@ -94,36 +94,37 @@ void KinoAstarPathFinder::expand(const GridNodePtr &node_ptr)
     }
 }
 
+
 bool KinoAstarPathFinder::analytical_expansion(const GridNodePtr &node_ptr)
 {
     oneShot_set_.clear();
     double optimal_T = optimal_time_to_goal_;
     Matrix<double, 6, 1> ds = (goal_ptr_->state_ - node_ptr->state_);
-    ds.head(3) = ds.head(3) - node_ptr->state_.tail(3) * optimal_T;
+    ds.head(3) = ds.head(3) - node_ptr->state_.tail(3) * optimal_T; // delta_p = p1 - p0 - V0 * t
     Matrix<double, 6, 1> alpha;
 
     alpha.head(3) =
         -12.0 / (optimal_T * optimal_T * optimal_T) * ds.head(3) + 6.0 / (optimal_T * optimal_T) * ds.tail(3);
-    alpha.tail(3) = 6.0 / (optimal_T * optimal_T) * ds.head(3) + -2.0 / optimal_T * ds.tail(3);
+    alpha.tail(3) = 6.0 / (optimal_T * optimal_T) * ds.head(3) - 2.0 / optimal_T * ds.tail(3);
 
     double delta_t = time_interval_ / time_step_;
 
-    bool safety_check = true;
     Vector3d node_pos, node_vel;
-    Eigen::Matrix<double, 6, 1> current_state = node_ptr->state_;
+    Eigen::Matrix<double, 6, 1> current_state;
+    Eigen::Matrix<double, 6, 1> node_state = node_ptr->state_;
 
-    for (double t = 0; t <= optimal_T; t += delta_t)
+    for (double t = delta_t; t <= optimal_T; t += delta_t)
     {
         Vector3d input = t * alpha.head(3) + alpha.tail(3);
         // check accelerate
         if (abs(input(0)) > max_acc_x_ || abs(input(1)) > max_acc_y_ || abs(input(2)) > max_acc_z_)
         {
-            return false;
+            // return false;
         }
 
         current_state.head(3) =
-            current_state.head(3) + delta_t * current_state.tail(3) + 0.5 * delta_t * delta_t * input;
-        current_state.tail(3) = current_state.tail(3) + delta_t * input;
+            node_state.head(3) + t * node_state.tail(3) + t * t * t / 6.0 * alpha.head(3) + 0.5 * t * t * alpha.tail(3);
+        current_state.tail(3) = node_state.tail(3) + 0.5 * t * t * alpha.head(3) + t * alpha.tail(3);
 
         node_pos = current_state.head(3);
         node_vel = current_state.tail(3);
@@ -136,7 +137,7 @@ bool KinoAstarPathFinder::analytical_expansion(const GridNodePtr &node_ptr)
         // check velocity
         if (abs(node_vel(0)) > max_vel_x_ || abs(node_vel(1)) > max_vel_y_ || abs(node_vel(2)) > max_vel_z_)
         {
-            return false;
+            // return false;
         }
         oneShot_set_.push_back(current_state);
     }
@@ -144,13 +145,14 @@ bool KinoAstarPathFinder::analytical_expansion(const GridNodePtr &node_ptr)
 }
 
 // double
-double KinoAstarPathFinder::getHeuristic(GridNodePtr node1, GridNodePtr node2, double &optimal_time)
+double KinoAstarPathFinder::getHeuristic(GridNodePtr node1, GridNodePtr goal_node, double &optimal_time)
 {
-    Vector3d delta_pos = (node2->state_ - node1->state_).head(3);
-    Vector3d delta_vel = (node2->state_ - node1->state_).tail(3);
+    Vector3d delta_pos = (goal_node->state_ - node1->state_).head(3);
+    Vector3d v0 = node1->state_.tail(3);
+    Vector3d v1 = goal_node->state_.tail(3);
     double a0 = -36 * delta_pos.squaredNorm() / weight_time_;
-    double a1 = -24 * delta_pos.dot(delta_vel) / weight_time_;
-    double a2 = -4 * delta_vel.squaredNorm() / weight_time_;
+    double a1 = 24 * delta_pos.dot(v0 + v1) / weight_time_;
+    double a2 = -4 * (v0.squaredNorm() + v1.squaredNorm() + v0.dot(v1)) / weight_time_;
     double a3 = 0;
 
     Matrix4d A;
@@ -180,14 +182,14 @@ void KinoAstarPathFinder::search(const Eigen::Vector3d &start_pt, const Eigen::V
 {
     ros::Time time0 = ros::Time::now();
     discretize_step_ = 3;
-    max_acc_x_ = 0.5;
-    max_acc_y_ = 0.5;
-    max_acc_z_ = 0.5;
-    max_vel_x_ = 1.8;
-    max_vel_y_ = 1.8;
-    max_vel_z_ = 1.8;
+    max_acc_x_ = 0.8;
+    max_acc_y_ = 0.8;
+    max_acc_z_ = 0.8;
+    max_vel_x_ = 1.0;
+    max_vel_y_ = 1.0;
+    max_vel_z_ = 1.0;
 
-    time_interval_ = 0.8;
+    time_interval_ = 1;
     time_step_ = 4;
     weight_time_ = 1;
 
@@ -211,8 +213,7 @@ void KinoAstarPathFinder::search(const Eigen::Vector3d &start_pt, const Eigen::V
 
     terminal_ptr_ = nullptr;
 
-    bool has_reached = false;
-    bool one_shot = false;
+    bool isNear = false;
 
     while (!open_set_.empty())
     {
@@ -220,12 +221,16 @@ void KinoAstarPathFinder::search(const Eigen::Vector3d &start_pt, const Eigen::V
         open_set_.pop();
         current_ptr_->id_ = -1;
 
-        if ((current_ptr_->coord_ - goal_ptr_->coord_).norm() < 0.2)
+        if ((current_ptr_->coord_ - goal_ptr_->coord_).norm() < 5 * grid_map_->resolution_)
         {
-            has_reached = true;
+            isNear = true;
+        }
+        else
+        {
+            isNear = false;
         }
 
-        if (!has_reached)
+        if (isNear)
         {
             getHeuristic(current_ptr_, goal_ptr_, optimal_time_to_goal_);
             if (analytical_expansion(current_ptr_))
@@ -238,14 +243,6 @@ void KinoAstarPathFinder::search(const Eigen::Vector3d &start_pt, const Eigen::V
                          current_ptr_->gScore_ * grid_map_->resolution_, 1000 * (time1 - time0).toSec());
                 return;
             }
-        }
-        else
-        {
-            terminal_ptr_ = goal_ptr_;
-            ros::Time time1 = ros::Time::now();
-            ROS_INFO("Find path successfully! The path cost is %f m, the time cost is %f ms!",
-                     current_ptr_->gScore_ * grid_map_->resolution_, 1000 * (time1 - time0).toSec());
-            return;
         }
 
         expand(current_ptr_);

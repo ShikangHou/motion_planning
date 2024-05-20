@@ -134,8 +134,7 @@ void pathFinding(const Vector3d start_pt, const Vector3d target_pt)
         visited_nodes = _kino_astar_path_finder->getVisitedNodes();
         auto oneShot = _kino_astar_path_finder->getOneShotPath();
         _kino_astar_path_finder->resetAllNodes();
-        if(!oneShot.empty())
-            visOneShotPath(oneShot);
+        visOneShotPath(oneShot);
     }
     else
     {
@@ -144,7 +143,6 @@ void pathFinding(const Vector3d start_pt, const Vector3d target_pt)
         visited_nodes = _astar_path_finder->getVisitedNodes();
         _astar_path_finder->resetAllNodes();
     }
-
 
     visGridPath(grid_path);
     visVisitedNode(visited_nodes);
@@ -280,7 +278,6 @@ void visOneShotPath(vector<Vector3d> nodes)
 
     _grid_path_vis_pub.publish(node_vis);
 }
-
 
 void visVisitedNode(vector<Vector3d> nodes)
 {

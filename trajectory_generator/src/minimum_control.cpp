@@ -4,6 +4,9 @@
  * @Description:
  */
 #include "minimum_control.h"
+#include <OsqpEigen/OsqpEigen.h>
+#include <Eigen/Dense>
+
 #include <iostream>
 
 using namespace Eigen;
@@ -97,15 +100,13 @@ Eigen::MatrixXd MinimumControl::solveQPClosedForm(int order, const Eigen::Matrix
     for (int i = 0; i < stage_num; i++)
     {
         double T = time(i);
-        for (int j = 0; j < poly_param_num; j++)
+        for (int j = order; j < poly_param_num; j++)
         {
-            for (int k = 0; k < poly_param_num; k++)
+            for (int k = order; k < poly_param_num; k++)
             {
-                if (j < order || k < order)
-                    continue;
                 Q(i * poly_param_num + j, i * poly_param_num + k) = factorial(j) / factorial(j - order) * factorial(k) /
-                                                                    factorial(k - order) * pow(T, j + k - poly_order) /
-                                                                    (j + k - poly_order);
+                                                                    factorial(k - order) / (j + k - poly_order) *
+                                                                    pow(T, j + k - poly_order);
             }
         }
     }
@@ -162,9 +163,155 @@ Eigen::MatrixXd MinimumControl::solveQPClosedForm(int order, const Eigen::Matrix
 
     // std::cout << "M:" << endl << M << endl;
     // std::cout << "C_T:" << endl << C_T << endl;
-    // std::cout << "Q:" << endl << Q << endl;
+    // std::cout << "Q:" << std::endl << Q << std::endl;
     // std::cout << "R:" << endl << R << endl;
     // std::cout << "polycoeff:" << std::endl << PolyCoeff << std::endl;
 
     return PolyCoeff.transpose();
+}
+
+Eigen::MatrixXd MinimumControl::solveQPNumerical(int order, const Eigen::MatrixXd &path, const Eigen::MatrixXd &vel,
+                                                 Eigen::MatrixXd &acc, Eigen::VectorXd &time)
+{
+
+    const int poly_param_num = 2 * order;
+    const int stage_num = time.size();
+    const int variables_num = poly_param_num * stage_num;
+    const int constraints_num = (stage_num + 1) * order + stage_num - 1;
+
+    // Q
+    Eigen::MatrixXd Q = Eigen::MatrixXd::Zero(variables_num, variables_num);
+    for (int i = 0; i < stage_num; i++)
+    {
+        double T = time(i);
+        Eigen::MatrixXd subQ = Eigen::MatrixXd::Zero(poly_param_num, poly_param_num);
+        for (int j = order; j < 2 * order; j++)
+        {
+            for (int k = order; k < 2 * order; k++)
+            {
+                subQ(j, k) = factorial(j) / factorial(j - order) * factorial(k) / factorial(k - order) /
+                             (j + k - 2 * order + 1) * pow(T, j + k - 2 * order + 1);
+            }
+        }
+        Q.block(i * poly_param_num, i * poly_param_num, poly_param_num, poly_param_num) = subQ;
+    }
+
+    // A
+    Eigen::MatrixXd A = Eigen::MatrixXd::Zero(constraints_num, variables_num);
+    const int derivative_num = 2 * order + stage_num - 1; // the number of derivative contraint
+    const int continuity_num = (stage_num - 1) * order;   // the number of continuity contraint
+
+    for (int i = 0; i < order; i++)
+    {
+        A(i, i) = factorial(i);
+    }
+
+    Eigen::MatrixXd Am = Eigen::MatrixXd::Zero(order, 2 * order);
+
+    double T = time(time.size() - 1);
+    for (int i = 0; i < order; i++)
+    {
+        for (int j = i; j < 2 * order; j++)
+        {
+            Am(i, j) = factorial(j) / factorial(j - i) * pow(T, j - i);
+        }
+    }
+    A.block(derivative_num - order, variables_num - 2 * order, order, 2 * order) = Am;
+    for (int i = 1; i < stage_num; i++)
+    {
+        A(order + i - 1, i * 2 * order) = 1;
+    }
+    for (int i = 0; i < stage_num - 1; i++)
+    {
+        double T = time(i);
+        for (int j = 0; j < order; j++)
+        {
+            for (int k = j; k < 2 * order; k++)
+            {
+                A(derivative_num + i * order + j, i * 2 * order + k) = factorial(k) / factorial(k - j) * pow(T, k - j);
+                A(derivative_num + i * order + j, (i + 1) * 2 * order + k) =
+                    -factorial(k) / factorial(k - j) * pow(0, k - j);
+            }
+        }
+    }
+
+    Eigen::MatrixXd polyCoeff = Eigen::MatrixXd::Zero(variables_num, 3);
+
+    OsqpEigen::Solver solver;
+    solver.settings()->setWarmStart(true);
+    solver.settings()->setVerbosity(false);
+    solver.data()->setNumberOfVariables(variables_num);
+    solver.data()->setNumberOfConstraints(constraints_num);
+    Eigen::SparseMatrix<double> hession = Q.sparseView();
+    solver.data()->setHessianMatrix(hession);
+    Eigen::VectorXd gradient = Eigen::VectorXd::Zero(variables_num);
+    solver.data()->setGradient(gradient);
+    Eigen::SparseMatrix<double> linear_matrix = A.sparseView();
+    solver.data()->setLinearConstraintsMatrix(linear_matrix);
+    Eigen::VectorXd linear_d = Eigen::VectorXd::Zero(constraints_num);
+
+    for (int dim = 0; dim < 3; dim++)
+    {
+
+        for (int i = 0; i < derivative_num; i++)
+        {
+            if (i == 0)
+            {
+                linear_d(0) = path(0, dim);
+            }
+            else if (i == 1 && order > 1)
+            {
+                linear_d(i) = vel(0, dim);
+            }
+            else if (i == 2 && order > 2)
+            {
+                linear_d(i) = acc(0, dim);
+            }
+            else if (i > 2 && order > i)
+            {
+                linear_d(i) = 0;
+            }
+            else if (i == derivative_num - order)
+            {
+                linear_d(i) = path(stage_num, dim);
+            }
+            else if (i == derivative_num - order + 1)
+            {
+                linear_d(i) = vel(1, dim);
+            }
+            else if (i == derivative_num - order + 2)
+            {
+                linear_d(i) = acc(1, dim);
+            }
+            else
+                linear_d(i) = path(i - order + 1, dim);
+        }
+
+        if (dim == 0)
+        {
+            solver.data()->setLowerBound(linear_d);
+            solver.data()->setUpperBound(linear_d);
+            solver.initSolver();
+        }
+        else
+        {
+            solver.updateBounds(linear_d, linear_d);
+        }
+
+        solver.solve();
+
+        Eigen::VectorXd QPsolution = solver.getSolution();
+        polyCoeff.col(dim) = QPsolution;
+
+
+        // std::cout << QPsolution.transpose() << std::endl;
+        // std::cout << "Q:" << std::endl << Q << std::endl;
+
+        // std::cout << "A" << A << std::endl;
+        // std::cout << "linear" << linear_d.transpose() << std::endl;
+    }
+
+    // std::cout << "polyCoeff:" << std::endl << polyCoeff.transpose() << std::endl;
+
+    return polyCoeff;
 }

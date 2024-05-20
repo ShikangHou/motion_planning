@@ -8,8 +8,8 @@
 <arg name="start_y" default=" 0.0"/>
 <arg name="start_z" default=" 1.0"/>
 
-<arg name="start_vx" default=" 0.2"/>
-<arg name="start_vy" default=" 0.2"/>
+<arg name="start_vx" default=" 0.01"/>
+<arg name="start_vy" default=" 0.01"/>
 <arg name="start_vz" default=" 0.0"/>
 <arg name="kinodynamic" default="true" />
 

@@ -17,9 +17,10 @@ using namespace Eigen;
 double visualization_traj_width;
 double max_vel, max_acc;
 int dev_order; // cost函数对应的导数阶数, =3: 最小化jerk =4: 最小化snap
+bool isTimeFixed;
 
 ros::Subscriber way_pts_sub;
-ros::Publisher waypoint_traj_vis_pub, waypoint_path_vis_pub;
+ros::Publisher waypoint_traj_vis_pub[2], waypoint_path_vis_pub;
 
 int poly_coeff_num;
 MatrixXd poly_coeff;
@@ -29,7 +30,7 @@ vector<Vector3d> path_set;
 
 MinimumControl *minco;
 
-void visWayPointTraj(MatrixXd polyCoeff, VectorXd time);
+void visWayPointTraj(MatrixXd polyCoeff, int id, VectorXd time);
 
 void visWayPointPath(MatrixXd path);
 
@@ -55,13 +56,21 @@ void rcvWaypointsCallBack(const nav_msgs::Path &wp)
         {
             path.row(i + 1) = path_set[i].transpose();
         }
-        VectorXd time = minco->timeAllocation(path,false,3,1);
+        VectorXd time = minco->timeAllocation(path, isTimeFixed, 3, 1);
         MatrixXd vel = MatrixXd::Zero(2, 3);
         vel.row(0) = start_velocity.transpose();
         MatrixXd acc = MatrixXd::Zero(2, 3);
+        ros::Time t1 = ros::Time::now();
         poly_coeff = minco->solveQPClosedForm(dev_order, path, vel, acc, time);
+        ros::Time t2 = ros::Time::now();
+        ROS_WARN("solve QP closed-from use time: %f ms", (t2 - t1).toSec() * 1000.f);
+        visWayPointTraj(poly_coeff, 0, time);
+        poly_coeff = minco->solveQPNumerical(dev_order, path, vel, acc, time);
+        ros::Time t3 = ros::Time::now();
+        ROS_WARN("solve QP Numerical use time: %f ms", (t3 - t2).toSec() * 1000.f);
+        visWayPointTraj(poly_coeff, 1, time);
+
         visWayPointPath(path);
-        visWayPointTraj(poly_coeff,time);
     }
 }
 
@@ -70,9 +79,10 @@ int main(int argc, char **argv)
     ros::init(argc, argv, "traj_node");
     ros::NodeHandle nh("~");
 
-    nh.param("planning/max_vel", max_vel, 1.0); // 当前机器人能运行的最大速度
-    nh.param("planning/max_acc", max_acc, 1.0); // 当前机器人能运行的最大加速度
+    nh.param("planning/max_vel", max_vel, 2.0); // 当前机器人能运行的最大速度
+    nh.param("planning/max_acc", max_acc, 3.0); // 当前机器人能运行的最大加速度
     nh.param("planning/dev_order", dev_order, 3);
+    nh.param("planning/fixed_time", isTimeFixed, true);
     nh.param("vis/vis_traj_width", visualization_traj_width, 0.15);
 
     //_poly_numID is the maximum order of polynomial
@@ -92,7 +102,8 @@ int main(int argc, char **argv)
 
     way_pts_sub = nh.subscribe("waypoints", 1, rcvWaypointsCallBack);
 
-    waypoint_traj_vis_pub = nh.advertise<visualization_msgs::Marker>("vis_trajectory", 1);
+    waypoint_traj_vis_pub[0] = nh.advertise<visualization_msgs::Marker>("vis_trajectory", 1);
+    waypoint_traj_vis_pub[1] = nh.advertise<visualization_msgs::Marker>("vis_trajectory1", 1);
     waypoint_path_vis_pub = nh.advertise<visualization_msgs::Marker>("vis_waypoint_path", 1);
 
     ros::Rate rate(100);
@@ -104,7 +115,7 @@ int main(int argc, char **argv)
     return 0;
 }
 
-void visWayPointTraj(MatrixXd polyCoeff, VectorXd time)
+void visWayPointTraj(MatrixXd polyCoeff, int id, VectorXd time)
 {
     visualization_msgs::Marker _traj_vis;
 
@@ -115,18 +126,18 @@ void visWayPointTraj(MatrixXd polyCoeff, VectorXd time)
     _traj_vis.id = 0;
     _traj_vis.type = visualization_msgs::Marker::SPHERE_LIST;
     _traj_vis.action = visualization_msgs::Marker::ADD;
-    _traj_vis.scale.x = visualization_traj_width;
-    _traj_vis.scale.y = visualization_traj_width;
-    _traj_vis.scale.z = visualization_traj_width;
+    _traj_vis.scale.x = (1 + 0.5 * id) * visualization_traj_width;
+    _traj_vis.scale.y = (1 + 0.5 * id) * visualization_traj_width;
+    _traj_vis.scale.z = (1 + 0.5 * id) * visualization_traj_width;
     _traj_vis.pose.orientation.x = 0.0;
     _traj_vis.pose.orientation.y = 0.0;
     _traj_vis.pose.orientation.z = 0.0;
     _traj_vis.pose.orientation.w = 1.0;
 
-    _traj_vis.color.a = 1.0;
-    _traj_vis.color.r = 1.0;
+    _traj_vis.color.a = 1.0 - 0.75 * id;
+    _traj_vis.color.r = 1.0 - id;
     _traj_vis.color.g = 0.0;
-    _traj_vis.color.b = 0.0;
+    _traj_vis.color.b = 0.0 + id;
 
     double traj_len = 0.0;
     int count = 0;
@@ -154,7 +165,7 @@ void visWayPointTraj(MatrixXd polyCoeff, VectorXd time)
         }
     }
 
-    waypoint_traj_vis_pub.publish(_traj_vis);
+    waypoint_traj_vis_pub[id].publish(_traj_vis);
 }
 
 void visWayPointPath(MatrixXd path)

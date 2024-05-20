@@ -13,11 +13,15 @@ class MinimumControl
     int factorial(int num);
 
   public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
     MinimumControl(){};
     ~MinimumControl(){};
-    Eigen::VectorXd timeAllocation(const Eigen::MatrixXd &path,bool isFixed, double max_vel = 0, double max_acc = 0);
+    Eigen::VectorXd timeAllocation(const Eigen::MatrixXd &path, bool isFixed, double max_vel = 0, double max_acc = 0);
     Eigen::MatrixXd solveQPClosedForm(int order, const Eigen::MatrixXd &path, const Eigen::MatrixXd &vel,
                                       Eigen::MatrixXd &acc, Eigen::VectorXd &time);
+    Eigen::MatrixXd solveQPNumerical(int order, const Eigen::MatrixXd &path, const Eigen::MatrixXd &vel,
+                                     Eigen::MatrixXd &acc, Eigen::VectorXd &time);
+
 };
 
 #endif //__MINIMUN_CONTROL_H
